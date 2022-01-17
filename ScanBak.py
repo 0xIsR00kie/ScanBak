@@ -17,6 +17,9 @@ import threading
 from queue import Queue
 from Hook.requests import enable_hook
 
+logger.remove()
+logger.add(sys.stdout, enqueue=True)
+
 DOMAIN_FORMAT = ("{}", "{}{}", "{}{}{}", "{}.{}", "{}.{}.{}")
 FILE_SUFFIXES = ('.sql', '.zip', '.7z', '.rar', '.gz', '.tar.gz', '.bz2', '.tar')
 FILENAMS = ('www', "wwwroot")  # 自定义备份文件名
@@ -43,6 +46,7 @@ HEADERS = {
 parser = argparse.ArgumentParser()
 FILE_LOCK = None
 FLAGS = None
+LOGGER = None
 enable_hook()
 
 
@@ -74,15 +78,15 @@ def domain_bak_scanner(url: str, path: str) -> bool:
     try:
         r = requests.head(urljoin(url, path), headers=headers)
     except Exception as err:
-        logger.warning(err)
+        LOGGER.warning(err)
         return result
     if r.status_code in [301, 404, 401]:
-        logger.debug("[-] %s [%d]" % (urljoin(url, path), r.status_code))
+        LOGGER.debug("[-] %s [%d]" % (urljoin(url, path), r.status_code))
         return result
     if r.headers.get('Content-Type') in CONTENT_TYPES:
         length = r.headers.get("Content-Length")
-        logger.info("[+] %s [%d] %s [%s]" % (urljoin(url, path),
-                                             r.status_code, r.headers.get('content-type', 0), length))
+        LOGGER.success("[+] %s [%d] %s [%s]" % (urljoin(url, path),
+                                                r.status_code, r.headers.get('content-type', 0), length))
         result = True
         return result
 
@@ -90,6 +94,7 @@ def domain_bak_scanner(url: str, path: str) -> bool:
 def _run_thread(queue: Queue, lock: threading.Lock):
     time.sleep(1)
     while not queue.empty():
+        # logger.complete()
         try:
             task = queue.get(timeout=1)
         except Exception:
@@ -114,12 +119,12 @@ def _work_process(url: str):
         p = urlparse(r.url)
         url = "%s://%s" % (p.scheme, p.netloc)
     except Exception as err:
-        logger.warning("[-] 请求异常: %s %s 跳过" % (url, err))
+        LOGGER.warning("[-] 请求异常: %s %s 跳过" % (url, err))
         return
 
     queue = Queue()
     tasks = format_domain(urlparse(url).netloc)
-    logger.info("[+] %s 任务开始" % url)
+    LOGGER.info("[+] %s 任务开始" % url)
     for s in FILE_SUFFIXES:
         for task in tasks:
             queue.put((url, task + s))
@@ -129,13 +134,14 @@ def _work_process(url: str):
     ts = [threading.Thread(target=_run_thread, args=(queue, lock)) for _ in range(FLAGS.thread)]
     [t.start() for t in ts]
     [t.join() for t in ts]
-    logger.info("[+] %s 任务结束" % url)
+    LOGGER.info("[+] %s 任务结束" % url)
 
 
-def initialize(l, f):
-    global FILE_LOCK, FLAGS
+def initialize(l, f, log):
+    global FILE_LOCK, FLAGS, LOGGER
     FILE_LOCK = l
     FLAGS = f
+    LOGGER = log
 
 
 if __name__ == "__main__":
@@ -151,7 +157,7 @@ if __name__ == "__main__":
         parser.print_help()
         exit()
     if f.url:
-        initialize(Lock(), f)
+        initialize(Lock(), f, logger)
         _work_process(f.url)
     else:
         with open(f.file, 'r', encoding='utf8') as _f:
@@ -162,7 +168,7 @@ if __name__ == "__main__":
                 except UnicodeDecodeError:
                     logger.error("[-] 读取文件错误: %s" % line)
 
-        pool = Pool(processes=f.processes, initializer=initialize, initargs=(Lock(), f))
+        pool = Pool(processes=f.processes, initializer=initialize, initargs=(Lock(), f, logger))
         pool.map(_work_process, lines)
         pool.close()
         pool.join()
