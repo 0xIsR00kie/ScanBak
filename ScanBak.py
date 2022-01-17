@@ -21,8 +21,8 @@ logger.remove()
 logger.add(sys.stdout, enqueue=True)
 
 DOMAIN_FORMAT = ("{}", "{}{}", "{}{}{}", "{}.{}", "{}.{}.{}")
-FILE_SUFFIXES = ('.sql', '.zip', '.7z', '.rar', '.gz', '.tar.gz', '.bz2', '.tar')
-FILENAMS = ('www', "wwwroot")  # 自定义备份文件名
+FILE_SUFFIXES = ('.7z', '.gz', '.zip', '.rar', '.sql', '.sql~', '.tar.7z', '.tar.xz', '.tar.gz', '.sql.gz', '.sql.zip')
+FILENAMS = ('bbs', 'web', 'www', 'forum', 'backup', 'wwwroot')  # 自定义备份文件名
 CONTENT_TYPES = (
     "application/zip",  # zip
     "multipart/x-zip",  # zip 非标准
