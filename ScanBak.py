@@ -4,7 +4,7 @@
 # @Author       : 0xIsR00kie
 # @File         : ScanBak.py
 # @Description  : 备份文件扫描器
-# @Version      : 1.02
+# @Version      : 1.1
 import time
 import sys
 import requests
@@ -50,6 +50,15 @@ LOGGER = None
 enable_hook()
 
 
+def get_request(url: str, *args, **kwargs):
+    if FLAGS.is_head:
+        return requests.head(url, *args, **kwargs)
+    else:
+        if 'stream' in kwargs:
+            kwargs['stream'] = True
+        return requests.get(url, *args, **kwargs)
+
+
 def format_domain(domain: str) -> ():
     result = []
     tld = tldextract.extract(domain)
@@ -76,7 +85,7 @@ def domain_bak_scanner(url: str, path: str) -> bool:
     headers['Referer'] = url
     headers['Host'] = urlparse(url).netloc
     try:
-        r = requests.head(urljoin(url, path), headers=headers)
+        r = get_request(urljoin(url, path), headers=headers)
     except Exception as err:
         LOGGER.warning(err)
         return result
@@ -84,6 +93,9 @@ def domain_bak_scanner(url: str, path: str) -> bool:
         LOGGER.debug("[-] %s [%d]" % (urljoin(url, path), r.status_code))
         return result
     if r.headers.get('Content-Type') in CONTENT_TYPES:
+        for i in ("html",):  # 处理常见误报
+            if i in r.text:
+                return result
         length = r.headers.get("Content-Length")
         LOGGER.success("[+] %s [%d] %s [%s]" % (urljoin(url, path),
                                                 r.status_code, r.headers.get('content-type', 0), length))
@@ -115,7 +127,7 @@ def _work_process(url: str):
     headers['Referer'] = url
     headers['Host'] = urlparse(url).netloc
     try:
-        r = requests.head(url, headers=headers, allow_redirects=True)
+        r = get_request(url, headers=headers, allow_redirects=True)
         p = urlparse(r.url)
         url = "%s://%s" % (p.scheme, p.netloc)
     except Exception as err:
@@ -151,15 +163,13 @@ if __name__ == "__main__":
     parser.add_argument('-t', '--thread', type=int, default=5, help='内部线程.每个域名同时处理多少检查. 默认5')
     # parser.add_argument('-s', '--suffix', type=str, default='suffix.txt', help='后缀文件')
     parser.add_argument('-o', '--output', type=str, default='output.txt', help='输出结果文件')
+    parser.add_argument('--is-head', type=bool, nargs='?', const=True, default=False, help='开启高速模式')
     f, unparsed = parser.parse_known_args()
 
-    if len(sys.argv) < 2:
-        parser.print_help()
-        exit()
     if f.url:
         initialize(Lock(), f, logger)
         _work_process(f.url)
-    else:
+    elif f.file:
         with open(f.file, 'r', encoding='utf8') as _f:
             lines = []
             for line in _f:
@@ -167,8 +177,9 @@ if __name__ == "__main__":
                     lines.append(line.strip())
                 except UnicodeDecodeError:
                     logger.error("[-] 读取文件错误: %s" % line)
-
         pool = Pool(processes=f.processes, initializer=initialize, initargs=(Lock(), f, logger))
         pool.map(_work_process, lines)
         pool.close()
         pool.join()
+    else:
+        parser.print_help()
