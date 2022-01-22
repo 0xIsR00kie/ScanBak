@@ -7,12 +7,15 @@
 # @Version      : 1.2
 import time
 import sys
+from _ctypes_test import func
+
 import requests
 import tldextract
 import argparse
 from urllib.parse import urlparse, urljoin
 from loguru import logger
-from multiprocessing import Pool, Lock
+from multiprocessing import Pool, Lock, Process
+from multiprocessing import Queue as PQueue
 import threading
 from queue import Queue
 import lxml.html.soupparser as soupparser
@@ -49,6 +52,7 @@ parser = argparse.ArgumentParser()
 FILE_LOCK = None
 FLAGS = None
 LOGGER = None
+TASK = None
 enable_hook()
 
 
@@ -185,7 +189,7 @@ def domain_bak_scanner(url: str, path: str) -> bool:
 
 
 def _run_thread(queue: Queue, lock: threading.Lock):
-    time.sleep(1)
+    time.sleep(1)  # 防止以外退出
     while not queue.empty():
         try:
             task = queue.get(timeout=1)
@@ -200,40 +204,63 @@ def _run_thread(queue: Queue, lock: threading.Lock):
                     task = queue.get(timeout=0.1)
 
 
-def _work_process(url: str):
-    if not url.startswith(('http://', 'https://')):
-        url = 'http://' + url
-    headers = HEADERS.copy()
-    headers['Referer'] = url
-    headers['Host'] = urlparse(url).netloc
-    try:
-        r = get_request(url, headers=headers, allow_redirects=True)
-        p = urlparse(r.url)
-        url = "%s://%s" % (p.scheme, p.netloc)
-    except Exception as err:
-        LOGGER.warning("[-] 请求异常: %s %s 跳过" % (url, err))
-        return
+def _work_process(_):
+    time.sleep(1)  # 防止以外退出
+    while not TASK.empty():
+        try:
+            url = TASK.get(timeout=1)
+        except Exception:
+            continue
 
-    queue = Queue()
-    tasks = format_domain(urlparse(url).netloc)
-    LOGGER.info("[+] %s 任务开始" % url)
-    for s in FILE_SUFFIXES:
-        for task in tasks:
-            queue.put((url, task + s))
-        for ss in FILENAMS:
-            queue.put((url, ss + s))
-    lock = threading.Lock()
-    ts = [threading.Thread(target=_run_thread, args=(queue, lock)) for _ in range(FLAGS.thread)]
-    [t.start() for t in ts]
-    [t.join() for t in ts]
-    LOGGER.info("[+] %s 任务结束" % url)
+        if not url.startswith(('http://', 'https://')):
+            url = 'http://' + url
+        headers = HEADERS.copy()
+        headers['Referer'] = url
+        headers['Host'] = urlparse(url).netloc
+        try:
+            r = get_request(url, headers=headers, allow_redirects=True)
+            p = urlparse(r.url)
+            url = "%s://%s" % (p.scheme, p.netloc)
+        except Exception as err:
+            LOGGER.warning("[-] 请求异常: %s %s 跳过" % (url, err))
+            return
+
+        queue = Queue()
+        tasks = format_domain(urlparse(url).netloc)
+        LOGGER.info("[+] %s 任务开始" % url)
+        for s in FILE_SUFFIXES:
+            for task in tasks:
+                queue.put((url, task + s))
+            for ss in FILENAMS:
+                queue.put((url, ss + s))
+        lock = threading.Lock()
+        ts = [threading.Thread(target=_run_thread, args=(queue, lock)) for _ in range(FLAGS.thread)]
+        [t.start() for t in ts]
+        [t.join() for t in ts]
+        LOGGER.info("[+] %s 任务结束" % url)
 
 
-def initialize(l, f, log):
-    global FILE_LOCK, FLAGS, LOGGER
+def read_file(f, task):
+    with open(f.file, 'r', encoding='utf8') as _f:
+        lines = []
+        for line in _f:
+            line = line.strip()
+            if line in lines:
+                logger.warning("重复任务: %s 跳过" % line)
+                continue
+            try:
+                lines.append(line)
+                task.put(line)
+            except UnicodeDecodeError:
+                logger.error("[-] 读取文件错误: %s" % line)
+
+
+def initialize(l, f, log, task):
+    global FILE_LOCK, FLAGS, LOGGER, TASK
     FILE_LOCK = l
     FLAGS = f
     LOGGER = log
+    TASK = task
 
 
 if __name__ == "__main__":
@@ -246,23 +273,15 @@ if __name__ == "__main__":
     parser.add_argument('--file-size', type=int, default=2, help='文件大小, 超过将不进行误报识别: 2m')
     parser.add_argument('--is-head', type=bool, nargs='?', const=True, default=False, help='开启高速模式')
     f, unparsed = parser.parse_known_args()
-
+    _task = PQueue(maxsize=1000)
     if f.url:
-        initialize(Lock(), f, logger)
-        _work_process(f.url)
+        initialize(Lock(), f, logger, _task)
+        _task.put(f.url)
+        _work_process(0)
     elif f.file:
-        with open(f.file, 'r', encoding='utf8') as _f:
-            lines = []
-            for line in _f:
-                if line.strip() in lines:
-                    logger.warning("重复任务: %s 跳过" % line)
-                    continue
-                try:
-                    lines.append(line.strip())
-                except UnicodeDecodeError:
-                    logger.error("[-] 读取文件错误: %s" % line)
-        pool = Pool(processes=f.processes, initializer=initialize, initargs=(Lock(), f, logger))
-        pool.map(_work_process, lines)
+        pool = Pool(processes=f.processes, initializer=initialize, initargs=(Lock(), f, logger, _task))
+        Process(target=read_file, args=(f, _task)).start()
+        pool.map(_work_process, range(f.processes + 1))
         pool.close()
         pool.join()
     else:
