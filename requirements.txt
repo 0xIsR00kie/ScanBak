@@ -3,6 +3,7 @@ charset-normalizer==2.0.10
 filelock==3.4.2
 idna==3.3
 loguru==0.5.3
+lxml==4.7.1
 requests==2.27.1
 requests-file==1.5.1
 six==1.16.0

@@ -30,27 +30,27 @@ def requests_inject_args(func):
         if "verify" not in kwargs:  # 默认关闭ssl效验
             kwargs["verify"] = False
         r = func(url, *args, **kwargs)
-        if r:
-            # 匹配请求头中的编码信息
-            try:
-                headers_encoding = re.findall(r'charset=[\'"]?([\S\d-]*)[\'"]?', r.headers.get('Content-Type'), re.I)[0]
-            except IndexError:
-                headers_encoding = r.apparent_encoding
-
-            # 匹配页面中的编码信息
-            html = r.text
-            try:
-                html_encoding = re.findall(r'charset=[\'"]?([\S\d-]*)[\'"]?', html, re.I)[0].rstrip('"')
-            except IndexError:
-                html_encoding = r.apparent_encoding
-            try:
-                if headers_encoding == html_encoding:
-                    r.encoding = headers_encoding
-                else:
-                    r.encoding = html_encoding
-            except Exception as err:
-                logger.error(err)
-                r.encoding = r.apparent_encoding
+        # if r:
+        #     # 匹配请求头中的编码信息
+        #     try:
+        #         headers_encoding = re.findall(r'charset=[\'"]?([\S\d-]*)[\'"]?', r.headers.get('Content-Type'), re.I)[0]
+        #     except IndexError:
+        #         headers_encoding = r.apparent_encoding
+        #
+        #     # 匹配页面中的编码信息
+        #     html = r.text
+        #     try:
+        #         html_encoding = re.findall(r'charset=[\'"]?([\S\d-]*)[\'"]?', html, re.I)[0].rstrip('"')
+        #     except IndexError:
+        #         html_encoding = r.apparent_encoding
+        #     try:
+        #         if headers_encoding == html_encoding:
+        #             r.encoding = headers_encoding
+        #         else:
+        #             r.encoding = html_encoding
+        #     except Exception as err:
+        #         logger.error(err)
+        #         r.encoding = r.apparent_encoding
         return r
 
     return wrapper
