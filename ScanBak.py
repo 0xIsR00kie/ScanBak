@@ -4,10 +4,9 @@
 # @Author       : 0xIsR00kie
 # @File         : ScanBak.py
 # @Description  : 备份文件扫描器
-# @Version      : 1.2
+# @Version      : 1.3
 import time
 import sys
-from _ctypes_test import func
 
 import requests
 import tldextract
@@ -22,7 +21,8 @@ import lxml.html.soupparser as soupparser
 from Hook.requests import enable_hook
 
 logger.remove()
-logger.add(sys.stdout, enqueue=True)
+logger.add("debug.log", level="WARNING", rotation='500 MB', enqueue=True)
+logger.add(sys.stdout, level="INFO", enqueue=True)
 
 DOMAIN_FORMAT = ("{}", "{}{}", "{}{}{}", "{}.{}", "{}.{}.{}")
 FILE_SUFFIXES = ('.7z', '.gz', '.zip', '.rar', '.sql', '.sql~', '.tar.7z', '.tar.xz', '.tar.gz', '.sql.gz', '.sql.zip')
@@ -196,20 +196,25 @@ def _run_thread(queue: Queue, lock: threading.Lock):
         except Exception:
             continue
         with lock:
-            if domain_bak_scanner(*task):
-                with FILE_LOCK:
-                    with open(FLAGS.output, 'a', encoding='utf-8') as f:
-                        f.write(urljoin(*task) + '\n')
-                while not queue.empty():
-                    task = queue.get(timeout=0.1)
+            try:
+                if domain_bak_scanner(*task):
+                    with FILE_LOCK:
+                        with open(FLAGS.output, 'a', encoding='utf-8') as f:
+                            f.write(urljoin(*task) + '\n')
+                    while not queue.empty():
+                        task = queue.get(timeout=0.1)
+            except Exception as err:
+                LOGGER.error(err)
 
 
 def _work_process(_):
     time.sleep(1)  # 防止以外退出
     while not TASK.empty():
         try:
-            url = TASK.get(timeout=1)
-        except Exception:
+            url = TASK.get(timeout=5)
+        except Exception as e:
+            LOGGER.error(e)
+            time.sleep(0.3)
             continue
 
         if not url.startswith(('http://', 'https://')):
@@ -223,7 +228,7 @@ def _work_process(_):
             url = "%s://%s" % (p.scheme, p.netloc)
         except Exception as err:
             LOGGER.warning("[-] 请求异常: %s %s 跳过" % (url, err))
-            return
+            continue
 
         queue = Queue()
         tasks = format_domain(urlparse(url).netloc)
@@ -243,7 +248,9 @@ def _work_process(_):
 def read_file(f, task):
     with open(f.file, 'r', encoding='utf8') as _f:
         lines = []
+        i = 0
         for line in _f:
+            i += 1
             line = line.strip()
             if line in lines:
                 logger.warning("重复任务: %s 跳过" % line)
@@ -253,6 +260,7 @@ def read_file(f, task):
                 task.put(line)
             except UnicodeDecodeError:
                 logger.error("[-] 读取文件错误: %s" % line)
+    logger.success("[+] 任务获取完毕: 共%d条" % i)
 
 
 def initialize(l, f, log, task):
@@ -273,7 +281,7 @@ if __name__ == "__main__":
     parser.add_argument('--file-size', type=int, default=2, help='文件大小, 超过将不进行误报识别: 2m')
     parser.add_argument('--is-head', type=bool, nargs='?', const=True, default=False, help='开启高速模式')
     f, unparsed = parser.parse_known_args()
-    _task = PQueue(maxsize=1000)
+    _task = PQueue()
     if f.url:
         initialize(Lock(), f, logger, _task)
         _task.put(f.url)
