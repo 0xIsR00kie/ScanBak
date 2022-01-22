@@ -4,7 +4,7 @@
 # @Author       : 0xIsR00kie
 # @File         : ScanBak.py
 # @Description  : 备份文件扫描器
-# @Version      : 1.3
+# @Version      : 1.4
 import time
 import sys
 
@@ -158,6 +158,11 @@ def domain_bak_scanner(url: str, path: str) -> bool:
 
     if r.headers.get('Content-Type') in CONTENT_TYPES:
         length = int(r.headers.get("Content-Length", 0))
+        if length == 0 and len(r.text) == 0:
+            LOGGER.warning(
+                "[+] 空文件 %s [%d] %s [%s]" % (task, r.status_code, r.headers.get('content-type', None), length))
+            r.close()
+            return result
         if length >= (1024 * 1024 * FLAGS.file_size):  # 大文件不进行相识度识别 5MB
             LOGGER.success(
                 "[+] 大文件 %s [%d] %s [%s]" % (task, r.status_code, r.headers.get('content-type', None), length))

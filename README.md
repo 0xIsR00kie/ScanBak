@@ -34,6 +34,9 @@ optional arguments:
 ```
 
 # LOG
+## V1.4
+> 过滤空文件
+> 
 ## V1.3
 > 修复进程异常退出BUG
 > 
