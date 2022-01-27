@@ -1,4 +1,4 @@
-# ScanBak V1.2
+# ScanBak V1.4
 备份文件扫描
 
 # 安装
